@@ -1,0 +1,164 @@
+
+-------------------- Active Users Query --------------------
+
+/*
+
+get active users per week: this is to show the problem in the graph view
+Active users: are users who interacted with the system during specific period
+
+*/
+
+
+SELECT DATE_TRUNC('week', e.occurred_at) week,
+       COUNT(DISTINCT e.user_id) AS weekly_active_users
+  FROM tutorial.yammer_events e
+ WHERE e.event_type = 'engagement'
+   AND e.event_name = 'login'
+ GROUP BY 1
+ ORDER BY 1
+
+-------------------- Active Users per Country --------------------
+
+
+
+/*
+
+in the sub-query: get top 10 countries based on overall active users count
+  
+in the main query: get active users per week per country for those top 10 countries 
+
+*/
+
+
+SELECT DATE_TRUNC('week', e.occurred_at) AS week,
+e.location,
+COUNT(DISTINCT e.user_id) AS weekly_active_users
+FROM tutorial.yammer_events e
+WHERE e.event_type = 'engagement'
+AND e.event_name = 'login'
+AND e.occurred_at >= '2014-07-01'
+AND e.occurred_at <  '2014-09-01'
+AND e.location in
+  (
+  SELECT 
+  e.location
+  FROM tutorial.yammer_events e
+  WHERE e.event_type = 'engagement'
+  AND e.event_name = 'login'
+  GROUP BY 1
+  ORDER BY COUNT(DISTINCT e.user_id)  desc
+  limit 10
+  )
+GROUP BY 1,2
+ORDER BY 1,2
+
+
+-------------------- Active Users Query Exec US --------------------
+
+
+/*
+
+in the sub-query: get top 10 countries based on overall active users count - excluding United States. 
+  This is needed to have a better graph view of other top 10 countries which are far behind US in active users counts
+  
+in the main query: get active users per week per country for those top 10 countries excluding United States
+
+*/
+
+
+SELECT DATE_TRUNC('week', e.occurred_at) AS week,
+e.location,
+COUNT(DISTINCT e.user_id) AS weekly_active_users
+FROM tutorial.yammer_events e
+WHERE e.event_type = 'engagement'
+AND e.event_name = 'login'
+AND e.occurred_at >= '2014-07-01'
+AND e.occurred_at <  '2014-09-01'
+AND e.location in
+  (
+  SELECT 
+  e.location
+  FROM tutorial.yammer_events e
+  WHERE e.event_type = 'engagement'
+  AND e.event_name = 'login'
+  AND e.location <> 'United States'
+  GROUP BY 1
+  ORDER BY COUNT(DISTINCT e.user_id)  desc
+  limit 10
+  )
+GROUP BY 1,2
+ORDER BY 1,2
+
+
+-------------------- Active Users per Device Type --------------------
+
+/*
+
+in the sub-query, segment active users per week by their device type, which is derived from the device name.
+in the main query: compare active users count with the previous week to get change and change percentage
+
+*/
+
+
+
+SELECT eve.*,
+weekly_active_users - lag(weekly_active_users) OVER (PARTITION BY device_type ORDER BY week, device_type) AS difference,
+(weekly_active_users - lag(weekly_active_users) OVER (PARTITION BY device_type ORDER BY week, device_type)) * 100/ weekly_active_users AS change_pct
+FROM
+(
+  SELECT
+  DATE_TRUNC('week', occurred_at) AS week,
+  CASE WHEN e.device IN ('macbook pro','lenovo thinkpad','macbook air','dell inspiron notebook',
+            'asus chromebook','dell inspiron desktop','acer aspire notebook','hp pavilion desktop','acer aspire desktop','mac mini') THEN 'computer' 
+       WHEN e.device IN ('iphone 5','samsung galaxy s4','nexus 5','iphone 5s','iphone 4s','nokia lumia 635',
+         'htc one','samsung galaxy note','amazon fire phone') THEN 'phone'
+       WHEN e.device IN ('ipad air','nexus 7','ipad mini','nexus 10','kindle fire','windows surface',
+          'samsumg galaxy tablet') THEN 'tablet' ELSE NULL END AS device_type,
+  COUNT(DISTINCT e.user_id) AS weekly_active_users
+  FROM tutorial.yammer_events e
+  WHERE e.event_type = 'engagement'
+  AND e.event_name = 'login'
+  AND e.occurred_at >= '2014-07-01'
+  AND e.occurred_at <  '2014-09-01'
+  GROUP BY 1,2
+) eve
+
+
+-------------------- Active Users per Activity Type --------------------
+
+
+/*
+
+in the sub-query: collect user events from both activity log and email actions log 
+  and then segment active users per week by the activity type.
+in the main query: compare active users count with the previous week to get change and change percentage
+
+*/
+
+SELECT eve.*,
+weekly_active_users - lag(weekly_active_users) OVER (PARTITION BY event_name ORDER BY week, event_name) AS difference,
+(weekly_active_users - lag(weekly_active_users) OVER (PARTITION BY event_name ORDER BY week, event_name)) * 100/ weekly_active_users AS change_pct
+FROM
+(
+  SELECT
+  DATE_TRUNC('week', occurred_at) AS week,
+  event_name,
+  COUNT(DISTINCT user_id) weekly_active_users
+  FROM tutorial.yammer_events
+  WHERE event_type = 'engagement'
+  AND event_name not like 'search_click_result%'
+  AND occurred_at >= '2014-07-01'
+  AND occurred_at <  '2014-09-01'
+  GROUP BY 1,2
+  
+  UNION ALL
+  
+  SELECT DATE_TRUNC('week', occurred_at) AS week,
+  action,
+  COUNT(DISTINCT user_id)
+  FROM tutorial.yammer_emails
+  WHERE occurred_at >= '2014-07-01'
+  AND occurred_at <  '2014-09-01'
+  GROUP BY 1,2
+) eve
+
